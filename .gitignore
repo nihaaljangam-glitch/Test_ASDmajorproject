@@ -23,11 +23,18 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Vercel & Builds
+.vercel
+dist/
+frontend/dist/
+
 # IDE / Editor Files
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
+
+
 
 
