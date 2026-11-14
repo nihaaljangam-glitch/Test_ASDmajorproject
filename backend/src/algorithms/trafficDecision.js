@@ -36,6 +36,7 @@ const SIGNAL_CONFIG = {
   maxGreenTime: 60,
   yellowTime: 3,
   allRedTime: 2,
+  calculationHoldTime: 2, // 2 seconds hold for waiting and calculating logic when traffic arrives
   greenFactor: 0.5 // Seconds added per priority score point
 };
 
@@ -304,6 +305,95 @@ function evaluateSafeIntersection({
     west:  calculateDirectionPriority(trafficData.west)
   };
 
+  const totalVehicles = Object.values(analyzedTraffic).reduce((sum, d) => sum + d.vehicleCount, 0);
+
+  // 1.1 Zero-Vehicle Rule: If 0 vehicles and no emergency, hold RED all the time
+  if (totalVehicles === 0 && !emergency) {
+    const directionalSignals = {};
+    for (const dir of ['north', 'south', 'east', 'west']) {
+      directionalSignals[dir] = {
+        signal: 'RED',
+        vehicleCount: 0,
+        waitingTime: 0,
+        congestionLevel: 0,
+        priorityScore: 0,
+        status: 'ALL_RED_HOLD'
+      };
+    }
+
+    return {
+      status: 'success',
+      timestamp: new Date().toISOString(),
+      currentPhase: 'ALL_RED_HOLD',
+      targetPhase: 'ALL_RED_HOLD',
+      signalState: 'ALL_RED',
+      duration: 0,
+      remainingTime: 0,
+      isZeroTraffic: true,
+      isCalculating: false,
+      emergencyMode: false,
+      emergencyDirection: null,
+      starvationActive: false,
+      starvedDirection: null,
+      priorityScores: {
+        north: analyzedTraffic.north,
+        south: analyzedTraffic.south,
+        east:  analyzedTraffic.east,
+        west:  analyzedTraffic.west,
+        phases: { NORTH_SOUTH: 0, EAST_WEST: 0 }
+      },
+      directions: directionalSignals,
+      safePhases: SAFE_PHASES,
+      message: '🛑 All-Red Hold: Zero vehicles in intersection. Signals reading & holding RED continuously until vehicles arrive.'
+    };
+  }
+
+  // 1.2 Two-Second Logic Calculation Hold: When vehicles arrive from zero-vehicle state, stop for 2 seconds to calculate logic
+  if (currentSignalState === 'ALL_RED' && (currentPhase === 'ALL_RED_HOLD' || currentPhase === 'STANDBY')) {
+    const decision = selectBestPhase(analyzedTraffic, emergency);
+    const targetPhase = decision.phase;
+    const directionalSignals = {};
+    for (const dir of ['north', 'south', 'east', 'west']) {
+      directionalSignals[dir] = {
+        signal: 'RED',
+        vehicleCount: analyzedTraffic[dir].vehicleCount,
+        waitingTime: analyzedTraffic[dir].waitingTime,
+        congestionLevel: analyzedTraffic[dir].congestionLevel,
+        priorityScore: analyzedTraffic[dir].score,
+        status: 'CALCULATING_LOGIC'
+      };
+    }
+
+    return {
+      status: 'success',
+      timestamp: new Date().toISOString(),
+      currentPhase: 'ALL_RED_HOLD',
+      targetPhase,
+      signalState: 'ALL_RED',
+      duration: SIGNAL_CONFIG.calculationHoldTime, // 2 seconds
+      remainingTime: SIGNAL_CONFIG.calculationHoldTime,
+      isZeroTraffic: false,
+      isCalculating: true,
+      emergencyMode: decision.reason === 'EMERGENCY_PREEMPTION',
+      emergencyDirection: decision.emergencyDirection || null,
+      starvationActive: decision.reason === 'STARVATION_PREVENTION',
+      starvedDirection: decision.starvedDirection || null,
+      priorityScores: {
+        north: analyzedTraffic.north,
+        south: analyzedTraffic.south,
+        east:  analyzedTraffic.east,
+        west:  analyzedTraffic.west,
+        phases: {
+          NORTH_SOUTH: calculatePhasePriority('NORTH_SOUTH', analyzedTraffic),
+          EAST_WEST: calculatePhasePriority('EAST_WEST', analyzedTraffic)
+        }
+      },
+      directions: directionalSignals,
+      safePhases: SAFE_PHASES,
+      message: `⏳ Traffic detected (${totalVehicles} vehicles)! Stopping for 2 seconds for waiting and calculating the logic to make Phase ${targetPhase} GREEN.`
+    };
+  }
+
   // 2. Select the optimal safe phase
   const decision = selectBestPhase(analyzedTraffic, emergency);
   const targetPhase = decision.phase;
@@ -384,12 +474,14 @@ function evaluateSafeIntersection({
 /**
  * Backward compatibility wrapper for single junction evaluation
  */
-function evaluateSingleJunction(directionCounts = {}, emergencyDirection = null, currentActive = null, isNextCycle = false) {
+function evaluateSingleJunction(directionCounts = {}, emergencyDirection = null, currentActive = null, isNextCycle = false, currentSignalState = 'GREEN') {
   // Infer current phase from currentActive direction
   let currentPhase = 'NORTH_SOUTH';
   if (currentActive) {
     const norm = currentActive.toUpperCase();
-    if (norm === 'EAST' || norm === 'WEST' || norm === 'EAST_WEST') {
+    if (norm === 'ALL_RED_HOLD' || norm === 'STANDBY') {
+      currentPhase = 'ALL_RED_HOLD';
+    } else if (norm === 'EAST' || norm === 'WEST' || norm === 'EAST_WEST') {
       currentPhase = 'EAST_WEST';
     }
   }
@@ -397,15 +489,18 @@ function evaluateSingleJunction(directionCounts = {}, emergencyDirection = null,
   const result = evaluateSafeIntersection({
     trafficData: directionCounts,
     currentPhase,
-    currentSignalState: 'GREEN',
+    currentSignalState: currentPhase === 'ALL_RED_HOLD' ? 'ALL_RED' : currentSignalState,
     emergency: emergencyDirection
   });
 
   return {
     activeDirection: result.currentPhase,
     activePhase: result.currentPhase,
+    targetPhase: result.targetPhase,
     duration: result.duration,
     isEmergency: result.emergencyMode,
+    isZeroTraffic: result.isZeroTraffic || false,
+    isCalculating: result.isCalculating || false,
     signalState: result.signalState,
     directions: result.directions,
     priorityScores: result.priorityScores,
@@ -416,9 +511,14 @@ function evaluateSingleJunction(directionCounts = {}, emergencyDirection = null,
 /**
  * Calculates signal decisions for ALL junctions across the network using Safe Phases
  */
-function calculate16SignalNetworkDecision({ networkVehicles = {}, ambulance = null, activeSignals = {}, rotatingJunction = null }) {
+function calculate16SignalNetworkDecision({ networkVehicles = {}, ambulance = null, activeSignals = {}, rotatingJunction = null, signalStates = {} }) {
   const junctionIds = ['J1', 'J2', 'J3', 'J4'];
   const networkDecision = {};
+
+  const totalNetworkVehicles = junctionIds.reduce((sum, jId) => {
+    const jCounts = networkVehicles[jId] || {};
+    return sum + Object.values(jCounts).reduce((s, c) => s + Number(c || 0), 0);
+  }, 0);
 
   let corridorActiveJunctions = {};
   if (ambulance && (ambulance.currentJunction || ambulance.junction)) {
@@ -438,14 +538,20 @@ function calculate16SignalNetworkDecision({ networkVehicles = {}, ambulance = nu
     const jCounts = networkVehicles[jId] || { north: 10, south: 10, east: 10, west: 10 };
     const emergencyDir = corridorActiveJunctions[jId] || null;
     const currentActive = activeSignals[jId] || 'NORTH_SOUTH';
+    const currentSignalState = signalStates[jId] || 'GREEN';
 
-    networkDecision[jId] = evaluateSingleJunction(jCounts, emergencyDir, currentActive, rotatingJunction === jId);
+    networkDecision[jId] = evaluateSingleJunction(jCounts, emergencyDir, currentActive, rotatingJunction === jId, currentSignalState);
   }
+
+  const allZeroTraffic = totalNetworkVehicles === 0 && (!ambulance || !ambulance.active);
 
   return {
     status: 'success',
     timestamp: new Date().toISOString(),
     totalSignals: 16,
+    totalNetworkVehicles,
+    allZeroTraffic,
+    calculationHoldTime: SIGNAL_CONFIG.calculationHoldTime,
     junctions: networkDecision,
     ambulance: ambulance ? {
       active: true,

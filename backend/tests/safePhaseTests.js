@@ -172,9 +172,41 @@ assert('Phase EAST_WEST only activates East & West as GREEN',
 );
 assert('Never all 4 directions green simultaneously in EAST_WEST', greenDirsEW.length < 4);
 
+// -----------------------------------------------------------------------------
+// Test 8 — Zero Vehicles on All Approaches: RED all the time
+// -----------------------------------------------------------------------------
+console.log('\n--- TEST 8: Zero Vehicles (Hold RED Continuously) ---');
+const t8 = evaluateSafeIntersection({
+  trafficData: { north: 0, south: 0, east: 0, west: 0 },
+  currentPhase: 'NORTH_SOUTH',
+  currentSignalState: 'GREEN'
+});
+assert('Zero traffic detected', t8.isZeroTraffic === true);
+assert('Signal state is ALL_RED', t8.signalState === 'ALL_RED');
+assert('All 4 directions are RED', 
+  t8.directions.north.signal === 'RED' && 
+  t8.directions.south.signal === 'RED' && 
+  t8.directions.east.signal === 'RED' && 
+  t8.directions.west.signal === 'RED'
+);
+
+// -----------------------------------------------------------------------------
+// Test 9 — Traffic Arrives from Zero State: 2s hold for waiting & calculating logic
+// -----------------------------------------------------------------------------
+console.log('\n--- TEST 9: Traffic Arrives (2s Hold for Waiting & Calculating Logic) ---');
+const t9 = evaluateSafeIntersection({
+  trafficData: { north: 15, south: 20, east: 0, west: 0 },
+  currentPhase: 'ALL_RED_HOLD',
+  currentSignalState: 'ALL_RED'
+});
+assert('Logic calculation state active', t9.isCalculating === true);
+assert('Signals remain in ALL_RED for 2s buffer', t9.signalState === 'ALL_RED');
+assert('Hold duration is exactly 2 seconds', t9.duration === 2);
+assert('Calculated winning target phase is NORTH_SOUTH', t9.targetPhase === 'NORTH_SOUTH');
+
 console.log('\n---------------------------------------------------------------');
 if (allPassed) {
-  console.log('🎉 ALL 7 TEST SCENARIOS PASSED WITH 100% SUCCESS!');
+  console.log('🎉 ALL 9 TEST SCENARIOS PASSED WITH 100% SUCCESS!');
 } else {
   console.error('❌ SOME TESTS FAILED');
   process.exit(1);

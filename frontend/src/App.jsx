@@ -203,6 +203,12 @@ export default function App() {
     J4: 30
   });
 
+  // 10. 2-second hold state when vehicles arrive from zero vehicles in four junctions
+  const [calculationHold, setCalculationHold] = useState(0);
+  const calculationHoldRef = useRef(0);
+  calculationHoldRef.current = calculationHold;
+  const wasAllZeroRef = useRef(false);
+
   const [logs, setLogs] = useState([]);
   const [backendStatus, setBackendStatus] = useState('connecting');
   const [backendData, setBackendData] = useState(null);
@@ -265,6 +271,79 @@ export default function App() {
   // ============================================================================
   // USER ACTION HANDLERS
   // ============================================================================
+  const triggerCalculationHold = (vehicles) => {
+    wasAllZeroRef.current = false;
+    setCalculationHold(2);
+    calculationHoldRef.current = 2;
+
+    const allRed = { J1: 'ALL_RED', J2: 'ALL_RED', J3: 'ALL_RED', J4: 'ALL_RED' };
+    setSignalStates(allRed);
+    signalStatesRef.current = allRed;
+    const holdCounts = { J1: 2, J2: 2, J3: 2, J4: 2 };
+    setCountdowns(holdCounts);
+    countdownsRef.current = holdCounts;
+
+    setLogs((prev) => [
+      `⏳ Vehicles detected! Stopping for 2 seconds in ALL-RED for waiting and calculating the logic to make signal decisions...`,
+      ...prev.slice(0, 9)
+    ]);
+
+    if (!isMonitoring) {
+      setTimeout(() => {
+        setCalculationHold(1);
+        calculationHoldRef.current = 1;
+        setCountdowns({ J1: 1, J2: 1, J3: 1, J4: 1 });
+        countdownsRef.current = { J1: 1, J2: 1, J3: 1, J4: 1 };
+
+        setTimeout(() => {
+          setCalculationHold(0);
+          calculationHoldRef.current = 0;
+
+          const newPhases = { ...activePhasesRef.current };
+          const newStates = { ...signalStatesRef.current };
+          const newCounts = { ...countdownsRef.current };
+
+          for (const jId of Object.keys(JUNCTIONS)) {
+            const jCars = Object.values(vehicles[jId] || {}).reduce((s, c) => s + Number(c), 0);
+            if (jCars === 0) {
+              newStates[jId] = 'ALL_RED';
+              newCounts[jId] = 0;
+              continue;
+            }
+
+            const nsPriority = computePriority(vehicles[jId].north, waitingTimesRef.current[jId].north) +
+                               computePriority(vehicles[jId].south, waitingTimesRef.current[jId].south);
+            const ewPriority = computePriority(vehicles[jId].east, waitingTimesRef.current[jId].east) +
+                               computePriority(vehicles[jId].west, waitingTimesRef.current[jId].west);
+            const winPhase = nsPriority >= ewPriority ? 'NORTH_SOUTH' : 'EAST_WEST';
+
+            newPhases[jId] = winPhase;
+            newStates[jId] = 'GREEN';
+            const phaseGreenDirs = SAFE_PHASES[winPhase].greenDirections;
+            const phasePriority = phaseGreenDirs.reduce((sum, d) => {
+              return sum + computePriority(vehicles[jId][d], waitingTimesRef.current[jId][d]);
+            }, 0);
+            newCounts[jId] = Math.min(
+              SIGNAL_CONFIG.maxGreenTime, 
+              Math.max(SIGNAL_CONFIG.minGreenTime, Math.round(SIGNAL_CONFIG.minGreenTime + (phasePriority * 0.5)))
+            );
+          }
+
+          activePhasesRef.current = newPhases;
+          signalStatesRef.current = newStates;
+          countdownsRef.current = newCounts;
+          setActivePhases(newPhases);
+          setSignalStates(newStates);
+          setCountdowns(newCounts);
+          setLogs((prev) => [
+            `🟢 2-second logic calculation complete! Safe phase GREEN activated based on priority scoring.`,
+            ...prev.slice(0, 9)
+          ]);
+        }, 1000);
+      }, 1000);
+    }
+  };
+
   const handleDirectionChange = (junctionId, direction, count) => {
     const val = Math.max(0, Math.min(100, Number(count) || 0));
     setNetworkVehicles((prev) => {
@@ -276,6 +355,29 @@ export default function App() {
         }
       };
       networkVehiclesRef.current = updated;
+
+      const newTotal = Object.values(updated).reduce((acc, jCounts) => {
+        return acc + Object.values(jCounts).reduce((a, b) => a + Number(b), 0);
+      }, 0);
+
+      if (newTotal === 0) {
+        wasAllZeroRef.current = true;
+        setCalculationHold(0);
+        calculationHoldRef.current = 0;
+        const allRed = { J1: 'ALL_RED', J2: 'ALL_RED', J3: 'ALL_RED', J4: 'ALL_RED' };
+        setSignalStates(allRed);
+        signalStatesRef.current = allRed;
+        const zeroCounts = { J1: 0, J2: 0, J3: 0, J4: 0 };
+        setCountdowns(zeroCounts);
+        countdownsRef.current = zeroCounts;
+        setLogs((prev) => [
+          `🛑 Vehicles is zero in four junctions. Signals reading & holding RED continuously until vehicles appear.`,
+          ...prev.slice(0, 9)
+        ]);
+      } else if (wasAllZeroRef.current) {
+        triggerCalculationHold(updated);
+      }
+
       return updated;
     });
   };
@@ -296,9 +398,34 @@ export default function App() {
         J3: { north: 15, south: 20, east: 10, west: 15 },
         J4: { north: 85, south: 50, east: 40, west: 65 }
       };
+    } else if (presetName === 'ZERO') {
+      nextVehicles = {
+        J1: { north: 0, south: 0, east: 0, west: 0 },
+        J2: { north: 0, south: 0, east: 0, west: 0 },
+        J3: { north: 0, south: 0, east: 0, west: 0 },
+        J4: { north: 0, south: 0, east: 0, west: 0 }
+      };
     }
     setNetworkVehicles(nextVehicles);
     networkVehiclesRef.current = nextVehicles;
+
+    if (presetName === 'ZERO') {
+      wasAllZeroRef.current = true;
+      setCalculationHold(0);
+      calculationHoldRef.current = 0;
+      const allRed = { J1: 'ALL_RED', J2: 'ALL_RED', J3: 'ALL_RED', J4: 'ALL_RED' };
+      setSignalStates(allRed);
+      signalStatesRef.current = allRed;
+      const zeroCounts = { J1: 0, J2: 0, J3: 0, J4: 0 };
+      setCountdowns(zeroCounts);
+      countdownsRef.current = zeroCounts;
+      setLogs((prev) => [
+        `🛑 Zero Vehicles in four junctions. Signals reading & holding RED continuously until vehicles appear.`,
+        ...prev.slice(0, 9)
+      ]);
+    } else if (wasAllZeroRef.current) {
+      triggerCalculationHold(nextVehicles);
+    }
   };
 
   // Spawn Ambulance
@@ -410,6 +537,120 @@ export default function App() {
       // 2. Realistic Vehicle Flow on active GREEN phases
       // Conflicting red directions accumulate waiting time (+1s)
       // Active green directions discharge cars and reset waiting time to 0
+      const totalCars = Object.values(currentVehicles).reduce((acc, jCounts) => {
+        return acc + Object.values(jCounts).reduce((a, b) => a + Number(b), 0);
+      }, 0);
+
+      // --- RULE 1: ZERO VEHICLES IN FOUR JUNCTIONS: READ & HOLD ALL-RED ALL THE TIME ---
+      if (totalCars === 0 && (!currentAmb || currentAmb.progress >= 100)) {
+        wasAllZeroRef.current = true;
+        setCalculationHold(0);
+        calculationHoldRef.current = 0;
+
+        let changed = false;
+        for (const jId of Object.keys(JUNCTIONS)) {
+          if (currentStates[jId] !== 'ALL_RED' || currentCounts[jId] !== 0) {
+            currentStates[jId] = 'ALL_RED';
+            currentCounts[jId] = 0;
+            changed = true;
+          }
+        }
+        if (changed) {
+          signalStatesRef.current = currentStates;
+          setSignalStates({ ...currentStates });
+          countdownsRef.current = currentCounts;
+          setCountdowns({ ...currentCounts });
+          setLogs((prev) => [
+            `🛑 Number of vehicles is zero in four junctions. Signals reading & holding RED continuously until vehicles appear.`,
+            ...prev.slice(0, 9)
+          ]);
+        }
+        return;
+      }
+
+      // --- RULE 2: TRAFFIC DETECTED AFTER ZERO STATE: STOP 2 SECONDS FOR WAITING & CALCULATING LOGIC ---
+      if (wasAllZeroRef.current && totalCars > 0) {
+        wasAllZeroRef.current = false;
+        calculationHoldRef.current = 2;
+        setCalculationHold(2);
+
+        for (const jId of Object.keys(JUNCTIONS)) {
+          currentStates[jId] = 'ALL_RED';
+          currentCounts[jId] = 2;
+        }
+        signalStatesRef.current = currentStates;
+        setSignalStates({ ...currentStates });
+        countdownsRef.current = currentCounts;
+        setCountdowns({ ...currentCounts });
+        setLogs((prev) => [
+          `⏳ Vehicles detected in network! Stopping for 2 seconds in ALL-RED for waiting and calculating the logic to make signal decisions...`,
+          ...prev.slice(0, 9)
+        ]);
+        return;
+      }
+
+      // --- RULE 3: COUNT DOWN 2-SECOND CALCULATION INTERVAL ---
+      if (calculationHoldRef.current > 0) {
+        const nextHold = calculationHoldRef.current - 1;
+        calculationHoldRef.current = nextHold;
+        setCalculationHold(nextHold);
+
+        if (nextHold > 0) {
+          for (const jId of Object.keys(JUNCTIONS)) {
+            currentStates[jId] = 'ALL_RED';
+            currentCounts[jId] = nextHold;
+          }
+          signalStatesRef.current = currentStates;
+          setSignalStates({ ...currentStates });
+          countdownsRef.current = currentCounts;
+          setCountdowns({ ...currentCounts });
+          return;
+        }
+
+        // 2-second hold finished! Calculate and grant winning phase green:
+        const calculationSummary = [];
+        for (const jId of Object.keys(JUNCTIONS)) {
+          const jCars = Object.values(currentVehicles[jId]).reduce((s, c) => s + Number(c), 0);
+          if (jCars === 0) {
+            currentStates[jId] = 'ALL_RED';
+            currentCounts[jId] = 0;
+            continue;
+          }
+
+          const nsPriority = computePriority(currentVehicles[jId].north, currentWaits[jId].north) +
+                             computePriority(currentVehicles[jId].south, currentWaits[jId].south);
+          const ewPriority = computePriority(currentVehicles[jId].east, currentWaits[jId].east) +
+                             computePriority(currentVehicles[jId].west, currentWaits[jId].west);
+          const winPhase = nsPriority >= ewPriority ? 'NORTH_SOUTH' : 'EAST_WEST';
+
+          currentPhases[jId] = winPhase;
+          currentStates[jId] = 'GREEN';
+          currentPending[jId] = null;
+
+          const phaseGreenDirs = SAFE_PHASES[winPhase].greenDirections;
+          const phasePriority = phaseGreenDirs.reduce((sum, d) => {
+            return sum + computePriority(currentVehicles[jId][d], currentWaits[jId][d]);
+          }, 0);
+          currentCounts[jId] = Math.min(
+            SIGNAL_CONFIG.maxGreenTime, 
+            Math.max(SIGNAL_CONFIG.minGreenTime, Math.round(SIGNAL_CONFIG.minGreenTime + (phasePriority * 0.5)))
+          );
+          calculationSummary.push(`${jId} -> ${winPhase === 'NORTH_SOUTH' ? 'North/South' : 'East/West'} GREEN`);
+        }
+
+        signalStatesRef.current = currentStates;
+        setSignalStates({ ...currentStates });
+        activePhasesRef.current = currentPhases;
+        setActivePhases({ ...currentPhases });
+        countdownsRef.current = currentCounts;
+        setCountdowns({ ...currentCounts });
+        setLogs((prev) => [
+          `🟢 After 2 seconds, calculated green signals: ${calculationSummary.join(' | ')}`,
+          ...prev.slice(0, 9)
+        ]);
+        return;
+      }
+
       let hasVehicleChanges = false;
 
       for (const jId of Object.keys(JUNCTIONS)) {
@@ -706,7 +947,7 @@ export default function App() {
       {/* Main Container */}
       <main className="max-w-6xl mx-auto w-full p-4 sm:p-6 space-y-5 flex-1">
         
-        {/* Prominent Mode Banner: NORMAL ADAPTIVE MODE vs EMERGENCY PREEMPTION MODE */}
+        {/* Prominent Mode Banner: NORMAL ADAPTIVE MODE vs EMERGENCY PREEMPTION MODE vs 2S CALCULATION vs ALL-RED HOLD */}
         {ambulance && ambulance.progress < 100 ? (
           <div className="bg-rose-950/40 border-2 border-rose-500/60 text-rose-200 px-4 py-3 rounded-2xl flex items-center justify-between font-mono text-xs shadow-xl animate-pulse">
             <div className="flex items-center gap-3">
@@ -724,6 +965,44 @@ export default function App() {
             </div>
             <span className="bg-rose-500/30 text-rose-300 px-3 py-1 rounded-lg border border-rose-500/50 font-bold">
               PREEMPTION ENGAGED
+            </span>
+          </div>
+        ) : calculationHold > 0 ? (
+          <div className="bg-amber-950/40 border-2 border-amber-500/60 text-amber-200 px-4 py-3 rounded-2xl flex items-center justify-between font-mono text-xs shadow-xl animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-amber-500/20 border border-amber-500 flex items-center justify-center text-sm font-bold text-amber-400">
+                ⏳
+              </div>
+              <div>
+                <span className="font-black text-sm tracking-wider text-amber-400 block">
+                  ⏳ WAITING &amp; CALCULATING LOGIC (STOPPED FOR 2 SECONDS IN ALL-RED)
+                </span>
+                <span className="text-[11px] text-slate-300">
+                  Vehicles detected! Stopping for 2 seconds to wait and calculate priority logic before activating green signals.
+                </span>
+              </div>
+            </div>
+            <span className="bg-amber-500/30 text-amber-300 px-3 py-1 rounded-lg border border-amber-500/50 font-bold">
+              CALCULATING ({calculationHold}s)
+            </span>
+          </div>
+        ) : totalNetworkCars === 0 ? (
+          <div className="bg-rose-950/30 border-2 border-rose-500/50 text-rose-200 px-4 py-3 rounded-2xl flex items-center justify-between font-mono text-xs shadow-xl">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-rose-500/20 border border-rose-500 flex items-center justify-center text-sm font-bold text-rose-400">
+                🛑
+              </div>
+              <div>
+                <span className="font-black text-sm tracking-wider text-rose-400 block">
+                  🛑 ALL-RED HOLD (0 VEHICLES IN FOUR JUNCTIONS)
+                </span>
+                <span className="text-[11px] text-slate-300">
+                  Number of vehicles is zero in four junctions &bull; All 16 signals reading &amp; holding RED continuously until vehicles appear.
+                </span>
+              </div>
+            </div>
+            <span className="bg-rose-500/20 text-rose-300 px-3 py-1 rounded-lg border border-rose-500/40 font-bold">
+              ALL-RED HOLD
             </span>
           </div>
         ) : (
@@ -846,14 +1125,15 @@ export default function App() {
                   (ambulance.currentJunction || ambulance.junction) === j.id && 
                   ambulance.progress < 100;
 
-                // Determine signal colors strictly from predefined safe phases
+                // Determine signal colors strictly: If 0 vehicles, ALWAYS RED!
+                const isJunctionEmpty = jTotal === 0 && !isEmergencyAtJunction;
                 const isNSActive = phase === 'NORTH_SOUTH';
                 const isEWActive = phase === 'EAST_WEST';
 
-                const northColor = state === 'ALL_RED' ? '#ef4444' : (isNSActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
-                const southColor = state === 'ALL_RED' ? '#ef4444' : (isNSActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
-                const eastColor  = state === 'ALL_RED' ? '#ef4444' : (isEWActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
-                const westColor  = state === 'ALL_RED' ? '#ef4444' : (isEWActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
+                const northColor = isJunctionEmpty || state === 'ALL_RED' ? '#ef4444' : (isNSActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
+                const southColor = isJunctionEmpty || state === 'ALL_RED' ? '#ef4444' : (isNSActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
+                const eastColor  = isJunctionEmpty || state === 'ALL_RED' ? '#ef4444' : (isEWActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
+                const westColor  = isJunctionEmpty || state === 'ALL_RED' ? '#ef4444' : (isEWActive ? (state === 'YELLOW' ? '#eab308' : '#10b981') : '#ef4444');
 
                 return (
                   <g
@@ -888,12 +1168,18 @@ export default function App() {
                         x="0" 
                         y="18" 
                         textAnchor="middle" 
-                        fill={isEmergencyAtJunction ? '#f43f5e' : (state === 'YELLOW' ? '#eab308' : state === 'ALL_RED' ? '#ef4444' : '#38bdf8')} 
+                        fill={isEmergencyAtJunction ? '#f43f5e' : (calculationHold > 0 ? '#f59e0b' : totalNetworkCars === 0 ? '#f87171' : state === 'YELLOW' ? '#eab308' : state === 'ALL_RED' ? '#ef4444' : '#38bdf8')} 
                         fontSize="8" 
                         fontWeight="bold" 
                         fontFamily="monospace"
                       >
-                        {state === 'ALL_RED' 
+                        {isEmergencyAtJunction
+                          ? `EMERGENCY:${jCountdown}s`
+                          : calculationHold > 0
+                          ? `CALC:${calculationHold}s`
+                          : totalNetworkCars === 0
+                          ? 'RED-HOLD'
+                          : state === 'ALL_RED' 
                           ? `ALL-RED:${jCountdown}s` 
                           : state === 'YELLOW' 
                           ? `YEL:${jCountdown}s` 
@@ -979,6 +1265,13 @@ export default function App() {
                 >
                   Rush Hour
                 </button>
+                <button
+                  onClick={() => applyPreset('ZERO')}
+                  className="px-2 py-1 text-[11px] font-mono rounded bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border border-rose-800/40"
+                  title="Test zero vehicles in 4 junctions (signals read RED continuously)"
+                >
+                  Zero Traffic
+                </button>
               </div>
             </div>
 
@@ -1000,7 +1293,7 @@ export default function App() {
                     }`}
                   >
                     <span>{j.id}</span>
-                    <span className="text-[10px] opacity-70">{total} cars &bull; {ph === 'NORTH_SOUTH' ? 'P1' : 'P2'}</span>
+                    <span className="text-[10px] opacity-70">{total} cars &bull; {total === 0 ? '🛑RED' : (ph === 'NORTH_SOUTH' ? 'P1' : 'P2')}</span>
                   </button>
                 );
               })}
@@ -1072,7 +1365,15 @@ export default function App() {
                         <span className="font-bold text-white text-sm uppercase">{dir} Approach</span>
                       </div>
                       
-                      {isDirGreen ? (
+                      {selectedTotal === 0 ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 font-bold font-mono">
+                          RED (0 VEHICLES)
+                        </span>
+                      ) : calculationHold > 0 ? (
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold font-mono">
+                          RED (CALCULATING {calculationHold}s)
+                        </span>
+                      ) : isDirGreen ? (
                         <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/30 text-emerald-300 font-bold font-mono">
                           GREEN ({selectedTimer}s)
                         </span>
