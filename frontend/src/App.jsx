@@ -39,7 +39,7 @@ import {
  * ==============================================================================
  */
 
-const API_BASE_URL = 'http://localhost:3000/api/traffic';
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/traffic';
 
 // Map Coordinates & Junction Configuration
 const JUNCTIONS = {
@@ -109,7 +109,7 @@ async function callBackendDecision(payload) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.json();
   } catch (err) {
-    console.warn('Backend API unavailable on port 3000:', err.message);
+    console.warn('Backend API unavailable:', err.message);
     return null;
   }
 }
@@ -919,7 +919,7 @@ export default function App() {
             >
               <Server className="w-3.5 h-3.5" />
               <span className={`w-1.5 h-1.5 rounded-full ${backendStatus === 'connected' ? 'bg-emerald-400 animate-pulse' : 'bg-rose-400'}`} />
-              <span>Backend: {backendStatus === 'connected' ? 'Connected (:3000)' : 'Offline'}</span>
+              <span>Backend: {backendStatus === 'connected' ? (typeof window !== 'undefined' && window.location.hostname === 'localhost' ? 'Connected (:3000)' : 'Connected (Live API)') : 'Offline'}</span>
             </div>
 
             <span

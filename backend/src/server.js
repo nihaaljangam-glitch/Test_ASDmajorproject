@@ -20,9 +20,12 @@ app.get('/', (req, res) => {
 // Traffic API Routes
 app.use('/api/traffic', trafficRoutes);
 
-// Start the Express server
-app.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
-});
+// Start the Express server only when run directly
+if (require.main === module) {
+  app.listen(PORT, () => {
+    console.log(`Server listening on port ${PORT}`);
+  });
+}
 
-module.exports = { app };
+module.exports = app;
+module.exports.app = app;
