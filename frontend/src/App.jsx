@@ -16,6 +16,7 @@ import {
   ShieldCheck
 } from 'lucide-react';
 import { Charts } from './components/Charts';
+import { SignalConfigPanel, DEFAULT_SIGNAL_CONFIG } from './components/SignalConfigPanel';
 
 /**
  * ==============================================================================
@@ -89,13 +90,7 @@ const SAFE_PHASES = {
   }
 };
 
-const SIGNAL_CONFIG = {
-  minGreenTime: 15,
-  maxGreenTime: 60,
-  yellowTime: 3,
-  allRedTime: 2,
-  maxWaitTime: 60
-};
+const SIGNAL_CONFIG = DEFAULT_SIGNAL_CONFIG;
 
 /**
  * Call Backend Decision API (/api/traffic/decision)
@@ -236,6 +231,24 @@ export default function App() {
   const ambulanceRef = useRef(ambulance);
   ambulanceRef.current = ambulance;
 
+  // Adaptive Signal Parameters & Thresholds
+  const [signalConfig, setSignalConfig] = useState(DEFAULT_SIGNAL_CONFIG);
+  const signalConfigRef = useRef(signalConfig);
+  signalConfigRef.current = signalConfig;
+
+  const handleUpdateSignalConfig = (updates) => {
+    setSignalConfig((prev) => {
+      const updated = { ...prev, ...updates };
+      signalConfigRef.current = updated;
+      return updated;
+    });
+  };
+
+  const handleResetSignalConfig = () => {
+    setSignalConfig(DEFAULT_SIGNAL_CONFIG);
+    signalConfigRef.current = DEFAULT_SIGNAL_CONFIG;
+  };
+
   // Simulation metrics for Rolling 5-Minute Performance History
   const [simTick, setSimTick] = useState(0);
   const simTickRef = useRef(0);
@@ -342,9 +355,10 @@ export default function App() {
             const phasePriority = phaseGreenDirs.reduce((sum, d) => {
               return sum + computePriority(vehicles[jId][d], waitingTimesRef.current[jId][d]);
             }, 0);
+            const cfg = signalConfigRef.current;
             newCounts[jId] = Math.min(
-              SIGNAL_CONFIG.maxGreenTime, 
-              Math.max(SIGNAL_CONFIG.minGreenTime, Math.round(SIGNAL_CONFIG.minGreenTime + (phasePriority * 0.5)))
+              cfg.maxGreenTime, 
+              Math.max(cfg.minGreenTime, Math.round(cfg.minGreenTime + (phasePriority * (cfg.greenFactor || 0.5))))
             );
           }
 
@@ -655,9 +669,10 @@ export default function App() {
           const phasePriority = phaseGreenDirs.reduce((sum, d) => {
             return sum + computePriority(currentVehicles[jId][d], currentWaits[jId][d]);
           }, 0);
+          const cfg = signalConfigRef.current;
           currentCounts[jId] = Math.min(
-            SIGNAL_CONFIG.maxGreenTime, 
-            Math.max(SIGNAL_CONFIG.minGreenTime, Math.round(SIGNAL_CONFIG.minGreenTime + (phasePriority * 0.5)))
+            cfg.maxGreenTime, 
+            Math.max(cfg.minGreenTime, Math.round(cfg.minGreenTime + (phasePriority * (cfg.greenFactor || 0.5))))
           );
           calculationSummary.push(`${jId} -> ${winPhase === 'NORTH_SOUTH' ? 'North/South' : 'East/West'} GREEN`);
         }
@@ -741,12 +756,13 @@ export default function App() {
         const emergencyRequiredPhase = (emergencyExitDir === 'NORTH' || emergencyExitDir === 'SOUTH') ? 'NORTH_SOUTH' : 'EAST_WEST';
 
         // State Machine Transition Logic
+        const cfg = signalConfigRef.current;
         if (currentState === 'YELLOW') {
           if (isTimerExpired) {
             // Step 2: YELLOW -> ALL RED clearance (2s)
             currentStates[jId] = 'ALL_RED';
-            currentCounts[jId] = SIGNAL_CONFIG.allRedTime;
-            setLogs((prev) => [`🛑 ${jId}: All-Red clearance interval active (2s). Intersection cleared.`, ...prev.slice(0, 9)]);
+            currentCounts[jId] = cfg.allRedTime;
+            setLogs((prev) => [`🛑 ${jId}: All-Red clearance interval active (${cfg.allRedTime}s). Intersection cleared.`, ...prev.slice(0, 9)]);
           }
         } else if (currentState === 'ALL_RED') {
           if (isTimerExpired) {
@@ -762,8 +778,8 @@ export default function App() {
               return sum + computePriority(currentVehicles[jId][d], currentWaits[jId][d]);
             }, 0);
             const dynamicTime = Math.min(
-              SIGNAL_CONFIG.maxGreenTime, 
-              Math.max(SIGNAL_CONFIG.minGreenTime, Math.round(SIGNAL_CONFIG.minGreenTime + (phasePriority * 0.5)))
+              cfg.maxGreenTime, 
+              Math.max(cfg.minGreenTime, Math.round(cfg.minGreenTime + (phasePriority * (cfg.greenFactor || 0.5))))
             );
 
             currentCounts[jId] = isEmergencyAtThisJunction ? 45 : dynamicTime;
@@ -777,9 +793,9 @@ export default function App() {
           if (isEmergencyAtThisJunction && currentPhase !== emergencyRequiredPhase) {
             currentStates[jId] = 'YELLOW';
             currentPending[jId] = emergencyRequiredPhase;
-            currentCounts[jId] = SIGNAL_CONFIG.yellowTime;
+            currentCounts[jId] = cfg.yellowTime;
             setLogs((prev) => [
-              `🚑 ${jId}: Emergency Preemption! Switching to YELLOW (3s) before granting ${emergencyRequiredPhase} GREEN.`,
+              `🚑 ${jId}: Emergency Preemption! Switching to YELLOW (${cfg.yellowTime}s) before granting ${emergencyRequiredPhase} GREEN.`,
               ...prev.slice(0, 9)
             ]);
             continue;
@@ -794,10 +810,10 @@ export default function App() {
               targetPhase = emergencyRequiredPhase;
               reason = 'Emergency Corridor Preemption';
             } else {
-              // Starvation Prevention Check: has any direction waited >= 60s?
+              // Starvation Prevention Check: has any direction waited >= maxWaitTime?
               let starvedDir = null;
               for (const dir of ['north', 'south', 'east', 'west']) {
-                if (currentWaits[jId][dir] >= SIGNAL_CONFIG.maxWaitTime && currentVehicles[jId][dir] > 0) {
+                if (currentWaits[jId][dir] >= cfg.maxWaitTime && currentVehicles[jId][dir] > 0) {
                   starvedDir = dir;
                   break;
                 }
@@ -822,9 +838,9 @@ export default function App() {
               // Step 1: CURRENT GREEN -> YELLOW clearance (3s)
               currentStates[jId] = 'YELLOW';
               currentPending[jId] = targetPhase;
-              currentCounts[jId] = SIGNAL_CONFIG.yellowTime;
+              currentCounts[jId] = cfg.yellowTime;
               setLogs((prev) => [
-                `⚠️ ${jId} [${reason}]: Initiating safe transition to ${targetPhase}. Yellow clearance (3s).`,
+                `⚠️ ${jId} [${reason}]: Initiating safe transition to ${targetPhase}. Yellow clearance (${cfg.yellowTime}s).`,
                 ...prev.slice(0, 9)
               ]);
             } else {
@@ -833,8 +849,8 @@ export default function App() {
                 return sum + computePriority(currentVehicles[jId][d], currentWaits[jId][d]);
               }, 0);
               const dynamicTime = Math.min(
-                SIGNAL_CONFIG.maxGreenTime, 
-                Math.max(SIGNAL_CONFIG.minGreenTime, Math.round(SIGNAL_CONFIG.minGreenTime + (phasePriority * 0.5)))
+                cfg.maxGreenTime, 
+                Math.max(cfg.minGreenTime, Math.round(cfg.minGreenTime + (phasePriority * (cfg.greenFactor || 0.5))))
               );
               currentCounts[jId] = isEmergencyAtThisJunction ? 45 : dynamicTime;
               setLogs((prev) => [
@@ -1550,6 +1566,13 @@ export default function App() {
             </div>
           )}
         </section>
+
+        {/* Adaptive Signal Parameters & Thresholds */}
+        <SignalConfigPanel 
+          signalConfig={signalConfig} 
+          onUpdateSignalConfig={handleUpdateSignalConfig} 
+          onResetSignalConfig={handleResetSignalConfig} 
+        />
 
         {/* Rolling 5-Minute Performance History */}
         <Charts simState={simState} isRunning={isMonitoring} />
