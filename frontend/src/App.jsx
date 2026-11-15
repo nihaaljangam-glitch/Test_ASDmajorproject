@@ -17,6 +17,8 @@ import {
 } from 'lucide-react';
 import { Charts } from './components/Charts';
 import { SignalConfigPanel, DEFAULT_SIGNAL_CONFIG } from './components/SignalConfigPanel';
+import { Charts } from './components/Charts';
+import { SignalConfigPanel, DEFAULT_SIGNAL_CONFIG } from './components/SignalConfigPanel';
 
 /**
  * ==============================================================================
@@ -248,6 +250,24 @@ export default function App() {
     setSignalConfig(DEFAULT_SIGNAL_CONFIG);
     signalConfigRef.current = DEFAULT_SIGNAL_CONFIG;
   };
+
+  // Simulation metrics for Rolling 5-Minute Performance History
+  const [simTick, setSimTick] = useState(0);
+  const simTickRef = useRef(0);
+  simTickRef.current = simTick;
+
+  const totalDischargedRef = useRef(0);
+  const recentDischargesRef = useRef([]);
+
+  const simState = React.useMemo(() => ({
+    vehicles: networkVehicles,
+    waitingTimes: waitingTimes,
+    metrics: {
+      recentDischarges: recentDischargesRef.current,
+      totalDischarged: totalDischargedRef.current
+    },
+    tick: simTick
+  }), [networkVehicles, waitingTimes, simTick]);
 
   // Simulation metrics for Rolling 5-Minute Performance History
   const [simTick, setSimTick] = useState(0);
@@ -1573,6 +1593,9 @@ export default function App() {
           onUpdateSignalConfig={handleUpdateSignalConfig} 
           onResetSignalConfig={handleResetSignalConfig} 
         />
+
+        {/* Rolling 5-Minute Performance History */}
+        <Charts simState={simState} isRunning={isMonitoring} />
 
         {/* Rolling 5-Minute Performance History */}
         <Charts simState={simState} isRunning={isMonitoring} />
