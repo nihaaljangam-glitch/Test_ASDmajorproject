@@ -9,7 +9,6 @@ import {
   exportHistoryToCSV,
   DEFAULT_WINDOW_SECONDS
 } from '../src/sim/rollingHistory.js';
-import { createInitialState } from '../src/sim/engine.js';
 
 test('rollingHistory - formatTimeLabel produces correct MM:SS strings', () => {
   assert.equal(formatTimeLabel(0), '0:00');
@@ -20,14 +19,16 @@ test('rollingHistory - formatTimeLabel produces correct MM:SS strings', () => {
 });
 
 test('rollingHistory - createRollingSample aggregates per-junction and network metrics accurately', () => {
-  const state = createInitialState({
-    initialVehicles: {
+  const state = {
+    vehicles: {
       J1: { north: 10, south: 10, east: 5, west: 5 },  // 30
       J2: { north: 5, south: 5, east: 5, west: 5 },    // 20
       J3: { north: 2, south: 2, east: 2, west: 2 },    // 8
       J4: { north: 15, south: 10, east: 5, west: 10 }  // 40
-    }
-  }, 42);
+    },
+    waitingTimes: {},
+    metrics: {}
+  };
 
   const sample = createRollingSample(state, 120);
 
@@ -83,7 +84,16 @@ test('rollingHistory - computeRollingStats calculates peak, averages, and sample
 });
 
 test('rollingHistory - generateBaselineHistory creates continuous 300s history points', () => {
-  const state = createInitialState({}, 42);
+  const state = {
+    vehicles: {
+      J1: { north: 10, south: 10, east: 5, west: 5 },
+      J2: { north: 5, south: 5, east: 5, west: 5 },
+      J3: { north: 2, south: 2, east: 2, west: 2 },
+      J4: { north: 15, south: 10, east: 5, west: 10 }
+    },
+    waitingTimes: {},
+    metrics: {}
+  };
   const baseline = generateBaselineHistory(state, DEFAULT_WINDOW_SECONDS, 2);
 
   assert.equal(baseline.length, 151); // 300 / 2 + 1 = 151 points
