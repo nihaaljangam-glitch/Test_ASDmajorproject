@@ -17,8 +17,7 @@ import {
 } from 'lucide-react';
 import { Charts } from './components/Charts';
 import { SignalConfigPanel, DEFAULT_SIGNAL_CONFIG } from './components/SignalConfigPanel';
-import { Charts } from './components/Charts';
-import { SignalConfigPanel, DEFAULT_SIGNAL_CONFIG } from './components/SignalConfigPanel';
+import { requestTrafficDecision } from './api/trafficApi.js';
 
 /**
  * ==============================================================================
@@ -42,8 +41,6 @@ import { SignalConfigPanel, DEFAULT_SIGNAL_CONFIG } from './components/SignalCon
  *    - Transitions safely to required corridor phase; returns to adaptive mode once cleared.
  * ==============================================================================
  */
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/traffic';
 
 // Map Coordinates & Junction Configuration
 const JUNCTIONS = {
@@ -93,24 +90,6 @@ const SAFE_PHASES = {
 };
 
 const SIGNAL_CONFIG = DEFAULT_SIGNAL_CONFIG;
-
-/**
- * Call Backend Decision API (/api/traffic/decision)
- */
-async function callBackendDecision(payload) {
-  try {
-    const res = await fetch(`${API_BASE_URL}/decision`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return await res.json();
-  } catch (err) {
-    console.warn('Backend API unavailable:', err.message);
-    return null;
-  }
-}
 
 /**
  * Determine which junction the ambulance is physically located at based on route progress
@@ -269,24 +248,6 @@ export default function App() {
     tick: simTick
   }), [networkVehicles, waitingTimes, simTick]);
 
-  // Simulation metrics for Rolling 5-Minute Performance History
-  const [simTick, setSimTick] = useState(0);
-  const simTickRef = useRef(0);
-  simTickRef.current = simTick;
-
-  const totalDischargedRef = useRef(0);
-  const recentDischargesRef = useRef([]);
-
-  const simState = React.useMemo(() => ({
-    vehicles: networkVehicles,
-    waitingTimes: waitingTimes,
-    metrics: {
-      recentDischarges: recentDischargesRef.current,
-      totalDischarged: totalDischargedRef.current
-    },
-    tick: simTick
-  }), [networkVehicles, waitingTimes, simTick]);
-
   // ============================================================================
   // SYNC WITH NODE.JS BACKEND (SETUP MODE)
   // ============================================================================
@@ -296,21 +257,24 @@ export default function App() {
     let isMounted = true;
 
     async function syncBackend() {
-      const data = await callBackendDecision({
-        networkVehicles,
-        ambulance: ambulance ? {
-          junction: ambulance.junction,
-          currentJunction: ambulance.currentJunction || ambulance.junction,
-          progress: ambulance.progress
-        } : null,
-        activeSignals: activePhases
-      });
+      try {
+        const data = await requestTrafficDecision({
+          networkVehicles,
+          ambulance: ambulance ? {
+            junction: ambulance.junction,
+            currentJunction: ambulance.currentJunction || ambulance.junction,
+            progress: ambulance.progress
+          } : null,
+          activeSignals: activePhases
+        });
 
-      if (isMounted) {
-        if (data && (data.status === 'success' || data.junctions)) {
+        if (isMounted && (data.status === 'success' || data.junctions)) {
           setBackendStatus('connected');
           setBackendData(data);
-        } else {
+        }
+      } catch (error) {
+        if (isMounted) {
+          console.warn('Backend API unavailable:', error.message);
           setBackendStatus('offline');
         }
       }
