@@ -2,9 +2,9 @@
 
 > **Safe Adaptive Traffic Signal Management System with Emergency Vehicle Preemption**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-traficflow.vercel.app-emerald?style=for-the-badge&logo=vercel)](https://traficflow.vercel.app/)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-trafficflow--ai--asd.vercel.app-emerald?style=for-the-badge&logo=vercel)](https://trafficflow-ai-asd.vercel.app/)
 
-🌐 **Live Deployment:** [https://traficflow.vercel.app/](https://traficflow.vercel.app/)
+🌐 **Live Deployment:** [https://trafficflow-ai-asd.vercel.app/](https://trafficflow-ai-asd.vercel.app/)
 
 ---
 
@@ -16,7 +16,7 @@
 
 ## 🚀 Key Features
 
-- **🌐 Live Web Deployment**: Fully hosted on Vercel at [https://traficflow.vercel.app/](https://traficflow.vercel.app/) with serverless API integration.
+- **🌐 Live Web Deployment**: Fully hosted on Vercel at [https://trafficflow-ai-asd.vercel.app/](https://trafficflow-ai-asd.vercel.app/) with serverless API integration.
 - **🛡️ Strictly Safe Signal Phases**: Conflicting directional flows (North/South vs. East/West) never turn green simultaneously.
 - **🛑 Zero-Vehicle All-Red Hold**: When no vehicles are present across all four junctions, all signals hold continuously in safe RED (`#ef4444`).
 - **⏱️ 2-Second Calculation Buffer**: When vehicles arrive from an empty network, signals hold for 2 seconds in clearance ALL_RED while evaluating priority logic before safely activating the winning green phase.
