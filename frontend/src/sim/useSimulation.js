@@ -42,7 +42,7 @@ export function useSimulation(initialConfig = {}, initialSeed = 42) {
     createInitialState({ ...mergedConfig, controller: 'fixed', fixedGreenTime: 30 }, initialSeed)
   );
   const [isCompareMode, setIsCompareMode] = useState(false);
-  const [isRunning, setIsRunning] = useState(false);
+  const [isRunning, setIsRunning] = useState(true);
   const [speed, setSpeed] = useState(1); // 1x, 2x, 5x
   const [selectedJunction, setSelectedJunction] = useState('J1');
   const [isRushHour, setIsRushHour] = useState(false);
