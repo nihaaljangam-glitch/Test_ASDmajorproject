@@ -1,30 +1,13 @@
 import React, { useState } from 'react';
 import { Sliders, RotateCcw, CheckCircle2, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
-
-export const DEFAULT_SIGNAL_CONFIG = {
-  minGreenTime: 15,
-  maxGreenTime: 60,
-  yellowTime: 3,
-  allRedTime: 2,
-  maxWaitTime: 60,
-  greenFactor: 0.5
-};
-
-export const SIGNAL_CONFIG_LIMITS = {
-  minGreen: { min: 5, max: 30, step: 1 },
-  maxGreen: { min: 30, max: 120, step: 1 },
-  yellow: { min: 2, max: 6, step: 1 },
-  allRed: { min: 1, max: 5, step: 1 },
-  starvation: { min: 30, max: 120, step: 5 },
-  greenFactor: { min: 0.1, max: 1.0, step: 0.05 }
-};
+import { SIGNAL_CONFIG_LIMITS, DEFAULT_SIGNAL_CONFIG } from '../sim/config.js';
 
 export function SignalConfigPanel({
   signalConfig,
   onUpdateSignalConfig,
   onResetSignalConfig
 }) {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   const cfg = signalConfig || DEFAULT_SIGNAL_CONFIG;
 
@@ -48,14 +31,14 @@ export function SignalConfigPanel({
 
   return (
     <section 
-      className="rounded-2xl bg-[#0b1329] border border-slate-800 p-4 sm:p-5 space-y-4 shadow-xl"
+      className="rounded-2xl bg-[#0b1329] border border-slate-800 p-4 sm:p-5 space-y-4"
       aria-label="Signal Timing and Controller Configuration"
     >
       <div className="flex items-center justify-between border-b border-slate-800 pb-3">
         <button
           type="button"
           onClick={() => setIsOpen((prev) => !prev)}
-          className="flex items-center gap-2 font-bold text-white text-sm hover:text-cyan-400 transition-colors focus:outline-none cursor-pointer"
+          className="flex items-center gap-2 font-bold text-white text-sm hover:text-cyan-400 transition-colors focus:outline-none"
           aria-expanded={isOpen}
           aria-controls="signal-config-content"
         >
@@ -71,7 +54,7 @@ export function SignalConfigPanel({
           <button
             type="button"
             onClick={onResetSignalConfig}
-            className="px-2.5 py-1 text-[11px] font-mono rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-colors flex items-center gap-1.5 cursor-pointer"
+            className="px-2.5 py-1 text-[11px] font-mono rounded bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-colors flex items-center gap-1.5"
             title="Reset signal parameters to defaults"
           >
             <RotateCcw className="w-3 h-3" />
@@ -190,7 +173,7 @@ export function SignalConfigPanel({
             <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-2">
               <div className="flex justify-between">
                 <label htmlFor="cfg-factor" className="text-slate-400">Green Scale Factor:</label>
-                <span className="text-cyan-300 font-bold">{(cfg.greenFactor || 0.5).toFixed(2)}x</span>
+                <span className="text-cyan-300 font-bold">{cfg.greenFactor.toFixed(2)}x</span>
               </div>
               <input
                 id="cfg-factor"
@@ -198,7 +181,7 @@ export function SignalConfigPanel({
                 min={SIGNAL_CONFIG_LIMITS.greenFactor.min}
                 max={SIGNAL_CONFIG_LIMITS.greenFactor.max}
                 step={SIGNAL_CONFIG_LIMITS.greenFactor.step}
-                value={cfg.greenFactor || 0.5}
+                value={cfg.greenFactor}
                 aria-label="Green duration scale factor"
                 onChange={(e) => onUpdateSignalConfig({ greenFactor: Number(e.target.value) })}
                 className="w-full accent-cyan-400 bg-slate-800 h-1.5 rounded-lg appearance-none cursor-pointer"
