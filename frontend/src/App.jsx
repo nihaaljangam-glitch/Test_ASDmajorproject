@@ -1561,9 +1561,6 @@ export default function App() {
         {/* Rolling 5-Minute Performance History */}
         <Charts simState={simState} isRunning={isMonitoring} />
 
-        {/* Rolling 5-Minute Performance History */}
-        <Charts simState={simState} isRunning={isMonitoring} />
-
       </main>
 
       {/* Footer */}
